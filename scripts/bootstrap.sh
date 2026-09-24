@@ -90,6 +90,8 @@ rm -f "$managed_list"
 trap - EXIT
 echo "Backed up existing managed files to $backup_dir"
 
+# Restore ordinary dotfile permissions; private_ chezmoi entries remain private.
+umask 022
 chezmoi --source="$repo_dir" apply --error-on-conflict
 mise install
 
