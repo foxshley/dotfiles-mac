@@ -7,3 +7,4 @@ scripts/**
 .git
 .git/**
 .gitignore
+mise.toml

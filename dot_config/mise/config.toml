@@ -6,17 +6,19 @@
 [tools]
 node = "lts"
 python = "3.14"
+ruby = "3.4"
 bun = "1.3.14"
 go = "1.26.5"
 # Homebrew reports 0.16.0_1; its packaging revision is not an upstream version.
 zig = "0.16.0"
+rust = "latest"
 
 [env]
 # Point uv at the interpreter selected by mise, including project overrides.
 UV_PYTHON = { value = "{{ tools.python.path }}", tools = true }
 
 [settings]
-# Preserve discovery of .nvmrc / .node-version and uv's .python-version.
-idiomatic_version_file_enable_tools = ["node", "python"]
+# Preserve discovery of Node, Python, and Rust project version files.
+idiomatic_version_file_enable_tools = ["node", "python", "rust"]
 # Preserve Go's usual GOBIN behavior; verify ~/go/bin is on the intended PATH.
 go.set_gobin = false
