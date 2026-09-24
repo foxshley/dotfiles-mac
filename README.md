@@ -16,6 +16,8 @@ On an existing Mac, run `bash scripts/bootstrap.sh preview` first. It lists chan
 
 Edit the source files in this repository, review `chezmoi --source="$(pwd)" status`, then apply. A full `chezmoi diff` can print old credentials from the target Mac, so handle its output locally. Update the global Node LTS deliberately with `mise upgrade node`; a project-specific version file overrides the global request. For Python projects, use mise to select the interpreter and `uv sync` / `uv run` to manage the project's `.venv` and dependencies. The uv configuration disables automatic Python downloads so an absent mise Python is an error rather than a silent second installation.
 
+To add a personal runtime from any directory, run `mise use -g TOOL@VERSION`. The `-g` writes `~/.config/mise/config.toml`; without it, mise writes a project config in the current directory. Sync that live change back into this repository with `chezmoi --source="$HOME/dotfiles" add "$HOME/.config/mise/config.toml"`, review `git -C "$HOME/dotfiles" diff -- dot_config/mise/config.toml`, and commit it. Alternatively, edit `dot_config/mise/config.toml` here first, then apply that file with chezmoi and run `mise install`. A root `mise.toml` is ignored by Git and chezmoi to guard against accidental local settings in this repository.
+
 The package lists are curated, not a copy of every installed formula or application. `manifests/packages-optional.md` records candidates that need project-by-project review. A particular ML project may add Conda when its own manifest or dependencies require it; there is no Conda initialization in these shell files.
 
 ## Boundaries

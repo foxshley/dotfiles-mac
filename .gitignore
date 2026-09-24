@@ -13,3 +13,6 @@
 **/node_modules/
 **/.venv/
 **/__pycache__/
+
+# `mise use` in this repo creates a local config, not a global default.
+/mise.toml
