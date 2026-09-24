@@ -14,15 +14,77 @@ The global mise config uses the latest Node LTS, Python 3.14, Ruby 3.4, and the 
 
 On an existing Mac, start with `bash scripts/bootstrap.sh preview`. It shows which paths would change without printing their contents. Review differences in the live files locally before applying. Apply mode makes a private, timestamped backup of existing managed files. If you want Fish as your login shell, confirm that it starts correctly, register its path in `/etc/shells`, then use `chsh`.
 
+The core package list covers tools I use across Macs. GUI apps are optional, and `manifests/packages-optional.md` holds other tools to review for each project. Conda belongs in an ML project's setup if that project needs it.
+
 ## Keeping it up to date
 
-Edit files in this repo, check `chezmoi --source="$HOME/dotfiles" status`, then apply your changes. Be careful with a full `chezmoi diff` on an existing Mac because it may print credentials from an old live file.
+To edit a managed file and apply it, use its path in your home directory. For example:
 
-To add a personal runtime, use `mise use -g TOOL@VERSION`. The `-g` updates `~/.config/mise/config.toml` from any directory. Without it, mise may create a project config in your current directory. Bring the global change back into dotfiles with `chezmoi --source="$HOME/dotfiles" add "$HOME/.config/mise/config.toml"`. Review the diff and commit it. You can also edit `dot_config/mise/config.toml` here first, apply it with chezmoi, and run `mise install`. If mise creates a `mise.toml` at the root of this repo by mistake, Git and chezmoi will ignore it.
+```bash
+chezmoi --source="$HOME/dotfiles" edit --apply "$HOME/.config/mise/config.toml"
+```
 
-Update the global Node LTS deliberately with `mise upgrade node`. Mise reads project version files for Node, Python, and Rust, so those projects can use a different version. For Python projects, mise selects the interpreter while `uv sync` and `uv run` manage dependencies in the project's `.venv`. uv is configured not to download another Python automatically, so a missing mise Python will show up as an error.
+To install a runtime you added to that config:
 
-The core package list covers tools I use across Macs. GUI apps are optional, and `manifests/packages-optional.md` holds other tools to review for each project. Conda belongs in an ML project's setup if that project needs it.
+```bash
+mise install
+```
+
+To see which managed files would change:
+
+```bash
+chezmoi --source="$HOME/dotfiles" status
+```
+
+To apply changes you made directly in `~/dotfiles`:
+
+```bash
+chezmoi --source="$HOME/dotfiles" apply
+```
+
+A full `chezmoi diff` may print credentials from an old live file, so review it privately.
+
+To add a global runtime from any directory, replace `TOOL@VERSION` with the tool and version you want:
+
+```bash
+mise use -g TOOL@VERSION
+```
+
+The `-g` matters. Without it, mise may create a project config in your current directory. If it creates `~/dotfiles/mise.toml` by mistake, Git and chezmoi will ignore that file.
+
+To copy the updated global mise config back into dotfiles:
+
+```bash
+chezmoi --source="$HOME/dotfiles" add "$HOME/.config/mise/config.toml"
+```
+
+To review that change before committing it:
+
+```bash
+git -C "$HOME/dotfiles" diff -- dot_config/mise/config.toml
+```
+
+To update the global Node LTS when you choose to:
+
+```bash
+mise upgrade node
+```
+
+Mise reads project version files for Node, Python, and Rust, so a project can use a different version.
+
+To install a Python project's dependencies, run this from the project directory:
+
+```bash
+uv sync
+```
+
+To run a command in that project's environment:
+
+```bash
+uv run COMMAND
+```
+
+Mise selects the Python interpreter. uv manages the project's `.venv` and does not download another Python automatically, so a missing mise Python shows up as an error.
 
 ## What stays out
 
