@@ -1,0 +1,5 @@
+[editor]
+default-yank-register="+"
+
+[keys.insert]
+j = { k = "normal_mode" }

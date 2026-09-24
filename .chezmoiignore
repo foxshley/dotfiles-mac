@@ -1,0 +1,9 @@
+# These repository files describe or operate the restore; they are not home files.
+README.md
+manifests
+manifests/**
+scripts
+scripts/**
+.git
+.git/**
+.gitignore

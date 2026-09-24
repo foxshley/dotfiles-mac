@@ -1,0 +1,5 @@
+# Go is managed by mise. Go's module tool installation is separate from runtime installation.
+# Observed user tool; install/update with: go install golang.org/x/tools/gopls@latest
+golang.org/x/tools/gopls
+
+# Optional Homebrew CLI observed: goreleaser (see packages-optional.md).

@@ -1,0 +1,6 @@
+# Optional identity values for dot_gitconfig.tmpl. Set these environment variables
+# before first init, or edit ~/.config/chezmoi/chezmoi.toml after key restoration.
+[data]
+git_name = {{ env "DOTFILES_GIT_NAME" | quote }}
+git_email = {{ env "DOTFILES_GIT_EMAIL" | quote }}
+git_signingkey = {{ env "DOTFILES_GIT_SIGNINGKEY" | quote }}

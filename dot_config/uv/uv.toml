@@ -1,0 +1,5 @@
+# Use mise's selected interpreter for project environments.
+# Other managers' interpreters, including mise Python, are 'system' to uv.
+python-preference = "only-system"
+# Allow Python downloads only when explicitly requested with uv python install.
+python-downloads = "manual"

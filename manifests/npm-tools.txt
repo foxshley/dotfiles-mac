@@ -1,0 +1,3 @@
+# Optional npm global CLIs from observed Node 24 installation; versions intentionally float
+@openai/codex
+@colbymchenry/codegraph

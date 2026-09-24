@@ -1,0 +1,8 @@
+# Development and adjacent creative apps. Review licensing and sign in after install.
+cask "android-studio"
+cask "cmux"
+cask "dotnet-sdk"
+cask "ghostty"
+cask "orbstack"
+cask "visual-studio-code"
+cask "unity-hub"

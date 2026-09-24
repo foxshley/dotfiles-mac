@@ -1,0 +1,2 @@
+# Excluded from macOS baseline; Windows Subsystem for Linux extension is Windows-specific.
+ms-vscode-remote.remote-wsl

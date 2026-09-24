@@ -1,0 +1,26 @@
+{
+  "breadcrumbs.enabled": true,
+  "editor.cursorBlinking": "smooth",
+  "editor.cursorSmoothCaretAnimation": "on",
+  "editor.tabSize": 2,
+  "editor.formatOnSave": true,
+  "editor.linkedEditing": true,
+  "editor.unicodeHighlight.nonBasicASCII": false,
+  "editor.defaultFormatter": "biomejs.biome",
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
+  "diffEditor.ignoreTrimWhitespace": false,
+  "prettier.printWidth": 240,
+  "chat.disableAIFeatures": true,
+  "redhat.telemetry.enabled": false,
+  "[c]": {},
+  "[html]": {
+    "editor.defaultFormatter": "vscode.html-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  }
+}

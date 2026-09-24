@@ -1,0 +1,11 @@
+# Mason tool registry names observed. Mason installs these via Neovim; this file is an inventory, not a standalone installer.
+astro-language-server
+json-lsp
+lua-language-server
+markdown-toc
+markdownlint-cli2
+marksman
+shfmt
+stylua
+tree-sitter-cli
+vtsls

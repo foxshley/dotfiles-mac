@@ -1,0 +1,15 @@
+.DS_Store
+*.swp
+*.swo
+*~
+.env
+.env.*
+**/auth.json
+**/hosts.yml
+**/credentials.json
+**/credentials.yml
+**/fish_history
+**/fish_variables
+**/node_modules/
+**/.venv/
+**/__pycache__/

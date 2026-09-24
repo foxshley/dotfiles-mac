@@ -1,0 +1,11 @@
+# Android SDK package IDs observed; install via sdkmanager after Android Studio setup and license acceptance.
+build-tools;36.0.0
+build-tools;37.0.0
+emulator
+platform-tools
+platforms;android-36.1
+platforms;android-37.0
+sources;android-36.1
+system-images;android-36.1;google_apis_playstore;arm64-v8a
+system-images;android-36.1;google_apis_playstore_ps16k;arm64-v8a
+system-images;android-37.1;google_apis_playstore_ps16k;arm64-v8a

@@ -1,0 +1,1 @@
+-- Personal Neovim options can be added here.
