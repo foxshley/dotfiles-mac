@@ -29,6 +29,33 @@ bash "$HOME/dotfiles/scripts/audit.sh" accept
 
 Check the snapshot date before accepting. If your setup has changed since the scan, run another audit first. Acceptance acknowledges the software inventory. It does not add anything to a Brewfile, capture settings, or commit changes. Restore gaps, Git changes, and chezmoi differences are shown on every audit, including after acceptance. `report` uses the inventory and restore declarations from the saved scan. Run a new scan after editing manifests.
 
+## Record restore choices
+
+To open the checklist against a fresh scan:
+
+```bash
+bash "$HOME/dotfiles/scripts/audit.sh" record
+```
+
+Choose whether to restore tools or exclude them with a reason. Move with the arrow keys, toggle tools with Space, and press Enter to preview the changes. Nothing is selected by default. The final confirmation defaults to No. Ctrl+C cancels.
+
+Restore choices go to these files:
+
+| Tool | Destination |
+| --- | --- |
+| Homebrew formula | `manifests/Brewfile.core` |
+| Homebrew cask | `manifests/Brewfile.apps` |
+| npm global | `manifests/npm-tools.txt` |
+| VS Code extension | `manifests/vscode-extensions.txt` |
+
+Homebrew tap ownership comes from the installed receipt. An unknown or ambiguous tap needs manual review. Local launchers can be excluded through the checklist, but restoring them needs an explicit recipe in `installations.toml`. Global mise requests still need their source configuration updated directly.
+
+Exclusions go to `manifests/installations.toml` with your reason. Recording changes only the source manifests. It does not install software, apply live settings, accept an inventory, stage files, or commit them. Review the Git diff, commit your choices when ready, and run a new audit to refresh the report.
+
+The checklist needs an interactive terminal and uv. uv runs Questionary in an isolated environment using the pinned script dependency and its committed lockfile. The first run may download dependencies. The normal audit still uses only the Python standard library.
+
+Only one checklist can record a repository at a time. If a manifest changes while you review, recording stops so you can start again. Each file replacement is atomic, and handled write failures roll back completed edits. This is not a crash-atomic transaction across files. Original manifests are backed up under the private audit state directory in `record-backups/`. Concurrent edits from other programs are detected where possible, but those programs do not share the checklist lock.
+
 ## Coverage
 
 | Check | What it records |

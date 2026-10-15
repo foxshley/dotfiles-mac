@@ -11,6 +11,7 @@ command -v python3 >/dev/null || { echo 'Install Python through mise before veri
 
 bash -n "$repo_dir/scripts/bootstrap.sh" "$repo_dir/scripts/verify.sh" "$repo_dir/scripts/audit.sh"
 python3 -B "$repo_dir/scripts/test_audit.py"
+python3 -B "$repo_dir/scripts/test_audit_record.py"
 if command -v ruby >/dev/null; then
   ruby -c "$repo_dir/manifests/Brewfile.core" >/dev/null
   ruby -c "$repo_dir/manifests/Brewfile.apps" >/dev/null

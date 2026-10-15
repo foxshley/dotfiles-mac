@@ -52,6 +52,14 @@ To review the most recent saved scan:
 bash "$HOME/dotfiles/scripts/audit.sh" report
 ```
 
+To choose which missing tools belong in your restore setup, or exclude them with a reason:
+
+```bash
+bash "$HOME/dotfiles/scripts/audit.sh" record
+```
+
+Use Space to select tools and Enter to continue. Review the proposed edits before confirming. The checklist records your choices in the manifests. It does not install the tools.
+
 To accept that reviewed inventory as your new baseline:
 
 ```bash

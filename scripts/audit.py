@@ -614,7 +614,7 @@ def load_pointer(state, kind, repo):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", nargs="?", choices=("scan", "report", "accept"), default="scan")
+    parser.add_argument("action", nargs="?", choices=("scan", "report", "accept", "record"), default="scan")
     parser.add_argument("--allow-prefix-loss", action="store_true",
                         help="With accept only, acknowledge intentionally removed npm prefix coverage")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
@@ -627,6 +627,24 @@ def main(argv=None):
         parser.error("State must be outside the Git repository")
     if not repo.is_dir():
         parser.error("Repository directory does not exist")
+    if args.action == "record":
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            print("Recording needs an interactive terminal. Run audit.sh record in your terminal.", file=sys.stderr)
+            return 2
+        uv = shutil.which("uv")
+        if uv is None:
+            print("uv is required for the Questionary checklist. Install it from the core Brewfile.", file=sys.stderr)
+            return 2
+        try:
+            status = subprocess.run([
+                uv, "run", "--no-config", "--no-env-file", "--no-python-downloads",
+                "--python", sys.executable, "--script", "--locked",
+                str(repo / "scripts/audit_record.py"), "--repo", str(repo), "--state-dir", str(state),
+            ], check=False).returncode
+            return 0 if status == 0 else 2
+        except (OSError, KeyboardInterrupt):
+            print("Recording cancelled or could not start.", file=sys.stderr)
+            return 2
     try:
         with locked(state):
             base = load_pointer(state, "baseline", repo)
