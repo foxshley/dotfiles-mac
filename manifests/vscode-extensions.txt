@@ -110,3 +110,4 @@ xdebug.php-debug
 xdebug.php-pack
 yaji.cocos-effect
 zobo.php-intellisense
+ms-vscode-remote.remote-wsl

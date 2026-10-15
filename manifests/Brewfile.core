@@ -34,3 +34,11 @@ brew "yq"
 brew "zoxide"
 brew "anomalyco/tap/opencode", trusted: true
 brew "neurosnap/tap/zmx", trusted: true
+brew "ffmpeg"
+brew "goreleaser"
+brew "helix"
+brew "herdr"
+brew "kind"
+brew "wrk"
+brew "yt-dlp"
+brew "zeroclaw"
