@@ -58,7 +58,7 @@ To accept that reviewed inventory as your new baseline:
 bash "$HOME/dotfiles/scripts/audit.sh" accept
 ```
 
-The first scan lists the current inventory. Acceptance does not capture settings or update the restore manifests. Git and chezmoi differences remain visible. Snapshots stay outside the repo in `~/.local/state/dotfiles-audit/`. See [audit coverage and baseline rules](manifests/audit.md).
+The report separates changes since your accepted inventory from tools missing a restore declaration. Accepting an inventory never clears restore gaps or captures live settings. Manual installer recipes, starting with Hermes, live in [installations.toml](manifests/installations.toml). Snapshots stay outside the repo in `~/.local/state/dotfiles-audit/`. See [audit coverage and baseline rules](manifests/audit.md).
 
 ### Dotfiles
 

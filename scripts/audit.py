@@ -2,6 +2,11 @@
 """Local inventories and live drift. No installs, network queries, or config copies."""
 from __future__ import annotations
 
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("Python 3.11+ is required. Use the Python installed through mise.")
+
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -12,17 +17,20 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
+import tomllib
 import uuid
+from copy import deepcopy
 
-SCHEMA = 1
-NAMES = ("brew_formulae", "brew_casks", "mise_installed", "mise_global", "npm", "vscode")
-CHECKS = ("git", "chezmoi", "missing_runtimes")
+SCHEMA = 2
+NAMES = ("brew_formulae", "brew_casks", "mise_installed", "mise_global", "npm", "vscode", "local_launchers", "manual")
+CHECKS = ("git", "chezmoi", "missing_runtimes", "restore")
 LABELS = {
     "brew_formulae": "Homebrew formulae", "brew_casks": "Homebrew casks",
     "mise_installed": "Installed mise runtimes", "mise_global": "Global mise requests",
     "npm": "npm globals by prefix", "vscode": "VS Code extensions (default profile)",
+    "local_launchers": "Local launchers (names and metadata)",
+    "manual": "Registered manual installations",
 }
 
 
@@ -87,11 +95,11 @@ def brew_inventory(kind):
     root = Path(override) if override else prefix / ("Cellar" if kind == "formulae" else "Caskroom")
     if not root.is_dir():
         raise AuditError(f"Homebrew {kind} directory is unavailable")
-    data = {}
+    data, requested, unknown = {}, [], []
     for package in sorted(root.iterdir()):
         if package.name.startswith(".") or not package.is_dir():
             continue
-        versions = []
+        versions, request_flags = [], []
         for version in sorted(package.iterdir()):
             if version.name.startswith(".") or not version.is_dir():
                 continue
@@ -99,16 +107,26 @@ def brew_inventory(kind):
                 receipt = version / "INSTALL_RECEIPT.json"
                 if not receipt.is_file():
                     raise AuditError("Formula directory has no install receipt; inventory may be in transition")
-                if not isinstance(read_json(receipt), dict):
+                metadata = read_json(receipt)
+                if not isinstance(metadata, dict):
                     raise AuditError("Invalid Homebrew install receipt")
+                request_flags.append(metadata.get("installed_on_request"))
             versions.append(version.name)
         if versions:
             if kind == "casks":
                 receipt = package / ".metadata/INSTALL_RECEIPT.json"
-                if not isinstance(read_json(receipt), dict):
+                metadata = read_json(receipt)
+                if not isinstance(metadata, dict):
                     raise AuditError("Invalid Homebrew cask receipt")
+                request_flags.append(metadata.get("installed_on_request"))
             data[package.name] = versions
-    return result(data=data, scope=short_path(root.resolve()))
+            if any(flag is True for flag in request_flags):
+                requested.append(package.name)
+            elif any(not isinstance(flag, bool) for flag in request_flags):
+                unknown.append(package.name)
+    row = result(data=data, scope=short_path(root.resolve()))
+    row.update(requested=requested, request_unknown=unknown)
+    return row
 
 
 def mise_records(flag):
@@ -201,6 +219,156 @@ def vscode_inventory():
     return result(data={k: sorted(set(v)) for k, v in data.items()}, scope=short_path(root))
 
 
+def local_launchers():
+    root = Path.home() / ".local/bin"
+    data = {}
+    try:
+        entries = sorted(root.iterdir())
+    except FileNotFoundError:
+        entries = []
+    for path in entries:
+        if path.is_symlink():
+            target = path.readlink()
+            target = target if target.is_absolute() else root / target
+            target = Path(os.path.normpath(target))
+            info = f"symlink -> {short_path(target)}"
+            try:
+                meta = path.stat()
+                info += f" (size={meta.st_size}, mtime_ns={meta.st_mtime_ns})"
+            except FileNotFoundError:
+                info += " (missing target)"
+            data[path.name] = [info]
+        elif path.is_file() and os.access(path, os.X_OK):
+            meta = path.stat()
+            data[path.name] = [f"executable file (size={meta.st_size}, mtime_ns={meta.st_mtime_ns})"]
+    return result(data=data, scope=short_path(root))
+
+
+def declared_packages(repo):
+    """Parse the supported literal manifest formats. Never evaluate a Brewfile."""
+    declarations = {key: set() for key in ("brew_formulae", "brew_casks", "npm", "vscode")}
+    paths = [repo / "manifests" / name for name in ("Brewfile.core", "Brewfile.apps")]
+    for path in paths:
+        for line in path.read_text().splitlines():
+            stripped = line.strip()
+            if not re.match(r"^(brew|cask)\b", stripped):
+                continue
+            match = re.fullmatch(r'''(brew|cask)\s+["']([^"']+)["'](?:\s*,.*)?(?:\s*#.*)?''', stripped)
+            if not match:
+                raise AuditError("Unsupported Brewfile declaration; restore coverage is unverified")
+            key = "brew_formulae" if match[1] == "brew" else "brew_casks"
+            declarations[key].add(match[2].rsplit("/", 1)[-1])
+    for key, filename in (("npm", "npm-tools.txt"), ("vscode", "vscode-extensions.txt")):
+        for line in (repo / "manifests" / filename).read_text().splitlines():
+            entry = line.split("#", 1)[0].strip()
+            if entry:
+                if any(c.isspace() for c in entry):
+                    raise AuditError("Unsupported tool-list entry in restore manifests")
+                name = entry.rsplit("@", 1)[0] if "@" in entry[1:] else entry
+                declarations[key].add(name.lower() if key == "vscode" else name)
+    tools = tomllib.loads((repo / "dot_config/mise/config.toml").read_text()).get("tools")
+    if not isinstance(tools, dict):
+        raise AuditError("Managed mise tools table is missing")
+    requests = {}
+    for key, value in tools.items():
+        values = value if isinstance(value, list) else [value]
+        versions = [v.get("version") if isinstance(v, dict) else v for v in values]
+        if not versions or any(not isinstance(v, str) for v in versions):
+            raise AuditError("Unsupported managed mise version request")
+        requests[key] = sorted(set(versions))
+    declarations["mise_global"] = requests
+    registry = tomllib.loads((repo / "manifests/installations.toml").read_text())
+    if registry.get("schema") != 1:
+        raise AuditError("Unsupported manual installation registry")
+    manual, excluded = registry.get("manual", {}), registry.get("excluded", {})
+    if not isinstance(manual, dict) or not isinstance(excluded, dict):
+        raise AuditError("Invalid installation registry")
+    for entry in manual.values():
+        if not isinstance(entry, dict):
+            raise AuditError("Invalid manual installation entry")
+        names = entry.get("executables")
+        if (not isinstance(names, list) or not names or
+                any(not isinstance(n, str) or not re.fullmatch(r"[A-Za-z0-9_.+-]+", n) for n in names)):
+            raise AuditError("Invalid manual launcher names")
+        for field in ("source", "install", "update", "verify"):
+            if not isinstance(entry.get(field), str) or not entry[field].strip():
+                raise AuditError("Manual recipe needs source, install, update, and verify instructions")
+        marker = entry.get("marker")
+        if (not isinstance(marker, str) or not marker or Path(marker).is_absolute()
+                or ".." in Path(marker).parts):
+            raise AuditError("Manual recipe needs a marker path relative to the home directory")
+        checkout = entry.get("checkout")
+        if checkout is not None and (not isinstance(checkout, str) or not checkout
+                                     or Path(checkout).is_absolute() or ".." in Path(checkout).parts):
+            raise AuditError("Manual source checkout must be relative to the home directory")
+    owners = [name for entry in manual.values() for name in entry["executables"]]
+    if len(owners) != len(set(owners)):
+        raise AuditError("A manual launcher has more than one declared owner")
+    for key, entries in excluded.items():
+        if (key not in declarations and key != "local_launchers") or not isinstance(entries, dict):
+            raise AuditError("Invalid exclusion category")
+        if any(not isinstance(k, str) or not isinstance(v, str) or not v.strip() for k, v in entries.items()):
+            raise AuditError("Exclusions need an explicit reason")
+    return declarations, manual, excluded
+
+
+def manual_inventory(repo):
+    _, manual, _ = declared_packages(repo)
+    data = {}
+    for name, entry in manual.items():
+        if not (Path.home() / entry["marker"]).is_file():
+            continue
+        version = "present (installation marker only)"
+        if entry.get("checkout"):
+            root = Path.home() / entry["checkout"]
+            if (root / ".git").exists():
+                revision = command(["git", "-C", str(root), "rev-parse", "--verify", "HEAD"], "/").strip()
+                if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+                    raise AuditError("Cannot read a registered manual tool's source revision")
+                version = f"source commit {revision}"
+        data[name] = [version]
+    return result(data=data, scope="manual recipes in manifests/installations.toml")
+
+
+def restore_coverage(repo, inventories):
+    declarations, manual, exclusions = declared_packages(repo)
+    gaps, excluded, unverified = {}, {}, []
+    registered = []
+    if inventories["manual"]["status"] != "ok":
+        unverified.append(LABELS["manual"])
+    launcher_owners = {name: owner for owner, entry in manual.items()
+                       if (Path.home() / entry["marker"]).is_file() for name in entry["executables"]}
+    for key in ("brew_formulae", "brew_casks", "mise_global", "npm", "vscode", "local_launchers"):
+        row = inventories[key]
+        if row["status"] != "ok":
+            unverified.append(LABELS[key])
+            continue
+        names = set(row["data"])
+        if key in ("brew_formulae", "brew_casks"):
+            if "requested" not in row or "request_unknown" not in row:
+                unverified.append(LABELS[key] + " (direct-install metadata unavailable)")
+                continue
+            names = set(row["requested"])
+            unverified.extend(f"{LABELS[key]}: direct/dependency status unknown for {n}" for n in row["request_unknown"])
+        for name in sorted(names):
+            package = name.rsplit(" :: ", 1)[-1] if key == "npm" else name
+            reason = exclusions.get(key, {}).get(package)
+            if reason:
+                excluded.setdefault(LABELS[key], []).append(f"{package}: {reason}")
+            elif key == "local_launchers":
+                if package in launcher_owners:
+                    registered.append(f"{package}: manual recipe '{launcher_owners[package]}'")
+                else:
+                    gaps.setdefault(LABELS[key], []).append(package)
+            elif key == "mise_global":
+                if declarations[key].get(package) != row["data"][name]:
+                    gaps.setdefault(LABELS[key], []).append(package + " (global request differs from managed source)")
+            elif package not in declarations[key]:
+                gaps.setdefault(LABELS[key], []).append(package)
+    return result(data={"gaps": gaps, "excluded": excluded,
+                        "registered_manual": sorted(registered), "unverified": unverified})
+
+
 def live_checks(repo, global_records):
     git = attempt(lambda: result(data={
         "head": command(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], "/").strip(),
@@ -218,7 +386,9 @@ def live_checks(repo, global_records):
 def collect(repo):
     inventories = {"brew_formulae": attempt(lambda: brew_inventory("formulae")),
                    "brew_casks": attempt(lambda: brew_inventory("casks")),
-                   "vscode": attempt(vscode_inventory)}
+                   "vscode": attempt(vscode_inventory),
+                   "local_launchers": attempt(local_launchers),
+                   "manual": attempt(lambda: manual_inventory(repo))}
     installed = global_records = None
     if shutil.which("mise"):
         try:
@@ -237,12 +407,21 @@ def collect(repo):
     inventories["npm"] = (result("error", reason="Cannot enumerate npm prefixes because mise inventory failed")
                           if inventories["mise_installed"]["status"] == "error"
                           else attempt(lambda: npm_inventory(installed)))
+    checks = live_checks(repo, global_records)
+    checks["restore"] = attempt(lambda: restore_coverage(repo, inventories))
     return {"schema": SCHEMA, "created_at": datetime.now(timezone.utc).isoformat(),
             "repo": str(repo), "inventories": inventories,
-            "checks": live_checks(repo, global_records)}
+            "checks": checks}
 
 
 def validate(snapshot):
+    if isinstance(snapshot, dict) and snapshot.get("schema") == 1:
+        # Upgrade only in memory. Keep the original baseline and history intact.
+        snapshot = deepcopy(snapshot)
+        snapshot["schema"] = SCHEMA
+        snapshot["inventories"]["local_launchers"] = result("unavailable", reason="Not collected by the older auditor")
+        snapshot["inventories"]["manual"] = result("unavailable", reason="Not collected by the older auditor")
+        snapshot["checks"]["restore"] = result("unavailable", reason="Not checked by the older auditor")
     if not isinstance(snapshot, dict) or snapshot.get("schema") != SCHEMA:
         raise AuditError("Unsupported snapshot schema")
     if not isinstance(snapshot.get("repo"), str) or not isinstance(snapshot.get("created_at"), str):
@@ -277,6 +456,17 @@ def validate(snapshot):
         entries = missing["data"].get("tools")
         if not isinstance(entries, list) or any(not isinstance(x, str) for x in entries):
             raise AuditError("Invalid missing-runtime data")
+    restore = snapshot["checks"]["restore"]
+    if restore["status"] == "ok":
+        data = restore["data"]
+        for key in ("gaps", "excluded"):
+            if (not isinstance(data.get(key), dict) or
+                    any(not isinstance(k, str) or not isinstance(v, list) or
+                        any(not isinstance(x, str) for x in v) for k, v in data[key].items())):
+                raise AuditError("Invalid restore coverage")
+        for key in ("registered_manual", "unverified"):
+            if not isinstance(data.get(key), list) or any(not isinstance(x, str) for x in data[key]):
+                raise AuditError("Invalid restore coverage")
     return snapshot
 
 
@@ -313,6 +503,7 @@ def safe(value):
 def render(snapshot, baseline):
     lines = [f"Audit: {safe(snapshot['created_at'])}", f"Repository: {safe(short_path(Path(snapshot['repo'])))}"]
     lines.append(f"Accepted baseline: {safe(baseline['created_at'])}" if baseline else "No accepted baseline. Review this inventory, then run audit.sh accept.")
+    lines.append("\nChanges since the accepted inventory:")
     for name in NAMES:
         row = snapshot["inventories"][name]
         lines.append(f"\n{LABELS[name]}:")
@@ -332,7 +523,7 @@ def render(snapshot, baseline):
                     lines.append("  Observed scope changed. No removals inferred across scopes.")
             lines.extend(f"  = {safe(key)}: {safe(', '.join(row['data'][key]))}" for key in sorted(row["data"]))
         elif not any(delta.values()):
-            lines.append("  No software/request changes.")
+            lines.append("  No changes since the accepted inventory.")
         else:
             for key in delta["added"]:
                 lines.append(f"  + {safe(key)}: {safe(', '.join(row['data'][key]))}")
@@ -340,7 +531,26 @@ def render(snapshot, baseline):
                 lines.append(f"  - {safe(key)}: {safe(', '.join(previous['data'][key]))}")
             for key in delta["changed"]:
                 lines.append(f"  ~ {safe(key)}: {safe(', '.join(previous['data'][key]))} -> {safe(', '.join(row['data'][key]))}")
-    lines.append("\nLive checks (always shown, even after accepting an inventory):")
+    lines.append("\nRestore coverage (accepting an inventory does not clear these gaps):")
+    restore = snapshot["checks"]["restore"]
+    if restore["status"] != "ok":
+        lines.append(f"  UNVERIFIED ({safe(restore['reason'])})")
+    else:
+        data = restore["data"]
+        if not data["gaps"]:
+            lines.append("  No undeclared tools found within verified coverage.")
+        for label, names in data["gaps"].items():
+            lines.append(f"  Missing restore declaration - {safe(label)}:")
+            lines.extend(f"    ! {safe(name)}" for name in names)
+        if data["registered_manual"]:
+            lines.append("  Registered manual recipes (still manual restore steps):")
+            lines.extend(f"    = {safe(name)}" for name in data["registered_manual"])
+        if data["excluded"]:
+            lines.append("  Deliberately excluded by policy:")
+            for label, names in data["excluded"].items():
+                lines.extend(f"    {safe(label)}: {safe(name)}" for name in names)
+        lines.extend(f"  UNVERIFIED: {safe(item)}" for item in data["unverified"])
+    lines.append("\nLive settings/source changes (always shown):")
     for key, title in (("git", "Git source"), ("chezmoi", "Managed home files")):
         row = snapshot["checks"][key]
         if row["status"] != "ok":
@@ -353,7 +563,7 @@ def render(snapshot, baseline):
     missing = snapshot["checks"]["missing_runtimes"]
     if missing["status"] == "ok" and missing["data"]["tools"]:
         lines.append("  Missing requested runtimes: " + safe(", ".join(missing["data"]["tools"])))
-    lines.append("\nScope: local Homebrew records, mise, active/all mise Node prefixes, default VS Code profile.")
+    lines.append("\nScope: local Homebrew records, mise, active/all mise Node prefixes, default VS Code profile, ~/.local/bin metadata.")
     lines.append("npm removals refer to a prefix, not proof of a machine-wide uninstall. No remote/update checks.")
     return "\n".join(lines) + "\n"
 
@@ -452,6 +662,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    if sys.version_info < (3, 11):
-        sys.exit("Python 3.11+ is required. Use the Python installed through mise.")
     sys.exit(main())

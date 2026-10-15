@@ -1,0 +1,25 @@
+# Recipes are documentation for manual restore steps. The audit never executes them.
+schema = 1
+
+[manual.hermes]
+executables = ["hermes", "hermes-agent", "hermes-acp"]
+marker = ".hermes/hermes-agent/pyproject.toml"
+checkout = ".hermes/hermes-agent"
+source = "https://hermes-agent.nousresearch.com/docs/getting-started/installation"
+install = "Use the official CLI installer: curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+update = "hermes update"
+verify = "hermes doctor"
+
+# These exclusions reflect the existing migration policy, not a new install choice.
+[excluded.brew_formulae]
+fnm = "Legacy Node manager, replaced by mise. Do not restore it globally."
+bun = "Existing Homebrew copy. Restore Bun through the managed mise config."
+go = "Existing Homebrew copy. Restore Go through the managed mise config."
+zig = "Existing Homebrew copy. Restore Zig through the managed mise config."
+"python@3.14" = "Existing Homebrew copy. Restore the development interpreter through mise."
+
+[excluded.brew_casks]
+miniforge = "Outside the development baseline. Restore only for a project that needs Conda."
+
+[excluded.npm]
+npm = "Provided by Node. Do not restore a second global npm installation."

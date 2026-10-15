@@ -5,6 +5,7 @@ These are not ordinary Homebrew packages. Confirm current use, download source, 
 - **Unity Editor 6000.5.4f1:** Unity Hub is in `Brewfile.apps`; install the editor and required modules through Hub. Licenses and project data are separate.
 - **Godot:** app observed in `~/Applications`; version was not established. Choose an official distribution if needed.
 - **Meteor 3.4.1:** installed under `~/.meteor`; no current project requirement was established. Restore only for Meteor projects.
+- **Hermes Agent:** use its [official CLI installer](https://hermes-agent.nousresearch.com/docs/getting-started/installation). The checked restore recipe is in `installations.toml`. The default source checkout is `~/.hermes/hermes-agent`, with launchers in `~/.local/bin`. Update with `hermes update` and verify with `hermes doctor`. The audit records launcher metadata and the source commit without running Hermes. Restore credentials and private state separately. Do not copy the entire `~/.hermes` directory into dotfiles.
 - **Claude Code:** native/user-local installation observed under `~/.local/share/claude` with a `~/.local/bin` symlink. Use the vendor installer; sign in separately.
 - **CodeGraph 1.5.0:** both standalone and npm global installation observed; avoid duplicate installs. Decide on one current supported installation method if still used.
 - **Java:** selected runtime was JetBrains Runtime 11 via Android Studio; Android Studio also bundled JBR 21. Do not export that transient selection as a general Java runtime. Select a JDK per Android/project need.

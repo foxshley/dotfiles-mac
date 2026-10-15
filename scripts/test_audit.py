@@ -17,7 +17,8 @@ def snapshot(repo):
             "inventories": {name: audit.result(data={"example": ["1"]}, scope=name) for name in audit.NAMES},
             "checks": {"git": audit.result(data={"head": "abc123", "changes": []}),
                        "chezmoi": audit.result(data={"changes": ["MM .config/fish/config.fish"]}),
-                       "missing_runtimes": audit.result(data={"tools": []})}}
+                       "missing_runtimes": audit.result(data={"tools": []}),
+                       "restore": audit.result(data={"gaps": {}, "excluded": {}, "registered_manual": [], "unverified": []})}}
 
 
 class ComparisonTests(unittest.TestCase):
@@ -56,7 +57,7 @@ class ComparisonTests(unittest.TestCase):
         current = snapshot(Path("/example"))
         report = audit.render(current, current)
         self.assertIn("MM .config/fish/config.fish", report)
-        self.assertIn("No software/request changes", report)
+        self.assertIn("No changes since the accepted inventory", report)
 
     def test_initial_inventory_is_reviewable_before_accepting(self):
         current = snapshot(Path("/example"))
@@ -68,6 +69,26 @@ class ComparisonTests(unittest.TestCase):
         del current["checks"]["chezmoi"]["data"]["changes"]
         with self.assertRaises(audit.AuditError):
             audit.validate(current)
+
+    def test_schema_one_baseline_upgrades_in_memory_only(self):
+        current = snapshot(Path("/example"))
+        current["schema"] = 1
+        del current["inventories"]["local_launchers"]
+        del current["inventories"]["manual"]
+        del current["checks"]["restore"]
+        before = deepcopy(current)
+        upgraded = audit.validate(current)
+        self.assertEqual(current, before)
+        self.assertEqual(upgraded["schema"], 2)
+        self.assertEqual(upgraded["inventories"]["local_launchers"]["status"], "unavailable")
+
+    def test_restore_gaps_survive_identical_accepted_inventory(self):
+        current = snapshot(Path("/example"))
+        current["checks"]["restore"]["data"]["gaps"] = {"Homebrew formulae": ["zeroclaw"]}
+        report = audit.render(current, current)
+        self.assertIn("No changes since the accepted inventory", report)
+        self.assertIn("! zeroclaw", report)
+        self.assertEqual(audit.acceptance_errors(current, current), [])
 
 
 class StateTests(unittest.TestCase):
@@ -188,6 +209,138 @@ class CollectorTests(unittest.TestCase):
             records = {"node": [{"installed": True, "install_path": str(prefix)}]}
             with patch.object(audit.shutil, "which", return_value=None):
                 self.assertEqual(audit.attempt(lambda: audit.npm_inventory(records))["status"], "error")
+
+    def test_launcher_inventory_records_metadata_without_reading_wrapper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            binaries = home / ".local/bin"
+            binaries.mkdir(parents=True)
+            wrapper = binaries / "custom-tool"
+            wrapper.write_text("#!/bin/sh\nTOKEN=DO_NOT_COPY\n")
+            wrapper.chmod(0o755)
+            (binaries / "link-tool").symlink_to(wrapper)
+            (binaries / "missing-tool").symlink_to(home / "absent")
+            (binaries / "notes.txt").write_text("not executable")
+            with patch.object(audit.Path, "home", return_value=home):
+                row = audit.local_launchers()
+            self.assertEqual(set(row["data"]), {"custom-tool", "link-tool", "missing-tool"})
+            self.assertNotIn("DO_NOT_COPY", json.dumps(row))
+            self.assertIn("missing target", row["data"]["missing-tool"][0])
+
+
+class RestoreCoverageTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.repo = self.root / "repo"
+        manifests = self.repo / "manifests"
+        manifests.mkdir(parents=True)
+        (manifests / "Brewfile.core").write_text('brew "tracked"\nbrew "vendor/tap/tapped", trusted: true\n')
+        (manifests / "Brewfile.apps").write_text('cask "tracked-app"\n')
+        (manifests / "npm-tools.txt").write_text('@scope/tracked@1.2\n')
+        (manifests / "vscode-extensions.txt").write_text('vendor.extension\n')
+        config = self.repo / "dot_config/mise"
+        config.mkdir(parents=True)
+        (config / "config.toml").write_text('[tools]\nnode="lts"\n')
+        self.registry = manifests / "installations.toml"
+        self.registry.write_text('''schema=1
+[manual.hermes]
+executables=["hermes"]
+marker=".hermes/hermes-agent/pyproject.toml"
+source="https://example.org/install"
+install="official installer"
+update="hermes update"
+verify="hermes doctor"
+[excluded.brew_formulae]
+legacy="Explicitly excluded by policy"
+[excluded.npm]
+npm="Provided by Node"
+''')
+        marker = self.root / ".hermes/hermes-agent/pyproject.toml"
+        marker.parent.mkdir(parents=True)
+        marker.write_text("")
+        self.marker = marker
+        self.inventories = {key: audit.result() for key in audit.NAMES}
+        row = self.inventories["brew_formulae"]
+        row["data"] = {name: ["1"] for name in ["tracked", "tapped", "dependency", "zeroclaw", "smartmontools", "legacy"]}
+        row.update(requested=["tracked", "tapped", "zeroclaw", "smartmontools", "legacy"], request_unknown=[])
+        row = self.inventories["brew_casks"]
+        row.update(data={"localsend": ["1"]}, requested=["localsend"], request_unknown=[])
+        self.inventories["npm"]["data"] = {"prefix :: @scope/tracked": ["1.2"], "prefix :: openclaw": ["2"], "prefix :: npm": ["3"]}
+        self.inventories["vscode"]["data"] = {"vendor.extension": ["1"]}
+        self.inventories["mise_global"]["data"] = {"node": ["lts"]}
+        self.inventories["local_launchers"]["data"] = {"hermes": ["file"], "unregistered": ["file"]}
+
+    def coverage(self):
+        with patch.object(audit.Path, "home", return_value=self.root):
+            return audit.restore_coverage(self.repo, self.inventories)
+
+    def test_direct_packages_and_launchers_remain_gaps_until_declared(self):
+        row = self.coverage()
+        gaps = row["data"]["gaps"]
+        self.assertEqual(gaps["Homebrew formulae"], ["smartmontools", "zeroclaw"])
+        self.assertEqual(gaps["Homebrew casks"], ["localsend"])
+        self.assertEqual(gaps["npm globals by prefix"], ["openclaw"])
+        self.assertEqual(gaps["Local launchers (names and metadata)"], ["unregistered"])
+        self.assertEqual(row["data"]["registered_manual"], ["hermes: manual recipe 'hermes'"])
+
+    def test_declaring_a_recipe_clears_gap_without_changing_software(self):
+        with (self.repo / "manifests/Brewfile.core").open("a") as f:
+            f.write('brew "zeroclaw"\n')
+        self.assertNotIn("zeroclaw", self.coverage()["data"]["gaps"]["Homebrew formulae"])
+
+    def test_unused_brewfile_cannot_hide_a_restore_gap(self):
+        (self.repo / "manifests/Brewfile.backup").write_text('brew "zeroclaw"\n')
+        self.assertIn("zeroclaw", self.coverage()["data"]["gaps"]["Homebrew formulae"])
+
+    def test_missing_marker_keeps_manual_tool_unverified(self):
+        self.marker.unlink()
+        row = self.coverage()
+        self.assertEqual(row["data"]["registered_manual"], [])
+        self.assertIn("hermes", row["data"]["gaps"]["Local launchers (names and metadata)"])
+
+    def test_changed_global_request_is_a_restore_gap(self):
+        self.inventories["mise_global"]["data"]["node"] = ["22"]
+        self.assertIn("Global mise requests", self.coverage()["data"]["gaps"])
+
+    def test_missing_collector_is_unverified_not_an_empty_install(self):
+        self.inventories["npm"] = audit.result("error", reason="failed")
+        row = self.coverage()
+        self.assertNotIn("npm globals by prefix", row["data"]["gaps"])
+        self.assertIn("npm globals by prefix", row["data"]["unverified"])
+
+    def test_unknown_homebrew_request_flags_are_not_guessed(self):
+        self.inventories["brew_formulae"]["request_unknown"] = ["mystery"]
+        self.assertTrue(any("mystery" in item for item in self.coverage()["data"]["unverified"]))
+
+    def test_unsupported_brewfile_is_not_executed(self):
+        (self.repo / "manifests/Brewfile.core").write_text('brew(variable)\n')
+        with self.assertRaises(audit.AuditError):
+            self.coverage()
+
+    def test_exclusion_needs_a_reason(self):
+        self.registry.write_text('schema=1\n[excluded.npm]\nopenclaw=""\n')
+        with self.assertRaises(audit.AuditError):
+            self.coverage()
+
+    def test_registered_manual_tool_is_observed_without_running_it(self):
+        with patch.object(audit.Path, "home", return_value=self.root):
+            row = audit.manual_inventory(self.repo)
+        self.assertEqual(row["data"], {"hermes": ["present (installation marker only)"]})
+
+    def test_duplicate_manual_ownership_is_rejected(self):
+        with self.registry.open("a") as f:
+            f.write('''\n[manual.duplicate]
+executables=["hermes"]
+marker="marker"
+source="source"
+install="install"
+update="update"
+verify="verify"
+''')
+        with self.assertRaises(audit.AuditError):
+            self.coverage()
 
 
 if __name__ == "__main__":
