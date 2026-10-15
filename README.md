@@ -38,6 +38,28 @@ Finish the parts that need your accounts or project choices, including SSH host 
 
 ## Keeping it up to date
 
+### Audit changes
+
+To compare your installed software with the last accepted inventory and check live settings:
+
+```bash
+bash "$HOME/dotfiles/scripts/audit.sh"
+```
+
+To review the most recent saved scan:
+
+```bash
+bash "$HOME/dotfiles/scripts/audit.sh" report
+```
+
+To accept that reviewed inventory as your new baseline:
+
+```bash
+bash "$HOME/dotfiles/scripts/audit.sh" accept
+```
+
+The first scan lists the current inventory. Acceptance does not capture settings or update the restore manifests. Git and chezmoi differences remain visible. Snapshots stay outside the repo in `~/.local/state/dotfiles-audit/`. See [audit coverage and baseline rules](manifests/audit.md).
+
 ### Dotfiles
 
 To edit and apply a managed file, use its path in your home directory. For example:
